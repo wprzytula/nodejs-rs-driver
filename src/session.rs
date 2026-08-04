@@ -1,7 +1,8 @@
 pub mod config;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use config::SessionOptions;
+use napi::Env;
 use scylla::client::caching_session::CachingSession;
 use scylla::response::{PagingState, PagingStateResponse};
 use scylla::statement::batch::Batch;
@@ -11,12 +12,14 @@ use crate::errors::{
     ConvertedError, ConvertedResult, JsResult, make_js_error, with_custom_error_async,
     with_custom_error_sync,
 };
+use crate::metadata::state::ClusterSnapshot;
 use crate::paging::{PagingResult, PagingResultWithExecutor, PagingStateWrapper};
 use crate::requests::request::{QueryOptionsObj, QueryOptionsWrapper};
 use crate::session::config::configure_session_builder;
 use crate::types::encoded_data::EncodedValuesWrapper;
 use crate::types::type_wrappers::ComplexType;
 use crate::utils::bigint_to_i64;
+use crate::utils::js_thread_only::JsThreadOnly;
 use crate::{requests::request::PreparedStatementWrapper, result::QueryResultWrapper};
 
 const DEFAULT_CACHE_SIZE: u32 = 512;
@@ -29,6 +32,9 @@ pub struct BatchWrapper {
 #[napi]
 pub struct SessionWrapper {
     pub(crate) inner: CachingSession,
+    /// Cache of the last `ClusterSnapshot` that was computed, alongside the `Arc<ClusterState>`
+    /// pointer it was built from.
+    cluster_snapshot: Mutex<JsThreadOnly<Option<ClusterSnapshot>>>,
 }
 
 /// This object allows executing queries for following pages of the result,
@@ -120,7 +126,10 @@ impl SessionWrapper {
             let builder = configure_session_builder(options)?;
             let session = builder.build().await?;
             let session: CachingSession = CachingSession::from(session, cache_size);
-            ConvertedResult::Ok(SessionWrapper { inner: session })
+            ConvertedResult::Ok(SessionWrapper {
+                inner: session,
+                cluster_snapshot: Mutex::new(JsThreadOnly::new(None)),
+            })
         })
         .await
     }
@@ -297,6 +306,53 @@ impl SessionWrapper {
             batch = self.apply_batch_options(batch, &options.options)?;
             ConvertedResult::Ok(BatchWrapper { inner: batch })
         })
+    }
+}
+
+impl SessionWrapper {
+    /// Refreshes the cached `ClusterSnapshot` if the Rust driver has produced a newer
+    /// `Arc<ClusterState>` since the last access, then invokes `f` with the up-to-date snapshot,
+    /// while still holding the cache's lock.
+    ///
+    /// `ClusterState` snapshots produced by the Rust driver are never mutated in place:
+    /// whenever the driver refreshes cluster topology/schema metadata in the background,
+    /// it produces a brand new `Arc<ClusterState>`, leaving any previously handed out
+    /// `Arc` untouched. This lets us detect whether our cached snapshot is stale by
+    /// comparing Arc pointers (`Arc::ptr_eq`):
+    /// - if the pointers match, nothing changed since the last access, so we reuse the
+    ///   cached `ClusterSnapshot` (avoiding rebuilding)
+    /// - if the pointers differ, the snapshot is stale, so we build (and cache) a new
+    ///   `ClusterSnapshot` from the fresh `Arc<ClusterState>`.
+    ///
+    /// This approach helps avoid any ABA problems: if the driver refreshes the cluster state
+    /// multiple times between two calls to this function, we will still detect that the cached
+    /// snapshot is stale, because we keep the cached `Arc` alive.
+    #[expect(unused)]
+    pub(crate) fn with_cluster_snapshot<T>(
+        &self,
+        env: &Env,
+        f: impl FnOnce(&ClusterSnapshot) -> ConvertedResult<T>,
+    ) -> ConvertedResult<T> {
+        let mut cache_guard = self
+            .cluster_snapshot
+            .lock()
+            .expect("poisoning impossible due to process-aborting panics");
+        let rust_cluster_state = self.inner.get_session().get_cluster_state();
+
+        let cached_state = cache_guard.get().as_ref();
+
+        if cached_state
+            .is_none_or(|cached_state| !Arc::ptr_eq(&rust_cluster_state, &cached_state.inner))
+        {
+            *cache_guard.get_mut() = Some(ClusterSnapshot::new(rust_cluster_state));
+        }
+
+        let snapshot = cache_guard
+            .get()
+            .as_ref()
+            .expect("cluster snapshot was just initialized above, if it was previously None");
+
+        f(snapshot)
     }
 }
 
