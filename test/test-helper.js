@@ -1191,7 +1191,8 @@ const helper = {
      * @returns {string} Last octet of the host address.
      */
     lastOctetOf: function (host) {
-        const address = typeof host === "string" ? host : host.address;
+        const address =
+            typeof host === "string" ? host : host.addressToString();
         const ipAddress = address.split(":")[0].split(".");
         return ipAddress[ipAddress.length - 1];
     },

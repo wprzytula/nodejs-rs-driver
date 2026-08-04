@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use napi::Env;
@@ -7,7 +8,10 @@ use scylla::cluster::{ClusterState, Node};
 use crate::errors::{ConvertedError, JsResult, with_custom_error_sync};
 use crate::metadata::state::ClusterSnapshot;
 use crate::session::SessionWrapper;
-use crate::utils::js_ctor::{HostCtorArgs, build_host, build_host_map, js_constructible_class};
+use crate::types::type_helpers::SocketAddrWrapper;
+use crate::utils::js_ctor::{
+    HostCtorArgs, build_host, build_host_map, build_socket_address, js_constructible_class,
+};
 use crate::utils::js_instance::JsInstance;
 use crate::utils::napi_ref::NapiRef;
 
@@ -33,9 +37,12 @@ pub(crate) fn cache_host_map(
 }
 
 /// Builds the arguments passed to the JS Host constructor for the given node.
-fn host_ctor_args<'a>(node: &'a Arc<Node>, _env: &'a Env) -> napi::Result<HostCtorArgs<'a>> {
+fn host_ctor_args<'a>(node: &'a Arc<Node>, env: &'a Env) -> napi::Result<HostCtorArgs<'a>> {
+    let address = SocketAddr::new(node.address.ip(), node.address.port());
+    let address = build_socket_address(env, FnArgs::from((SocketAddrWrapper::from(address),)))?;
+
     Ok(FnArgs::from((
-        node.address.to_string(),
+        address,
         node.datacenter.as_deref(),
         node.rack.as_deref(),
         Buffer::from(node.host_id.as_bytes().as_slice()),

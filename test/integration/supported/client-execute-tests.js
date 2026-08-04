@@ -186,7 +186,9 @@ describe("Client @SERVER_API", function () {
             client.execute(helper.queries.basic, function (err, result) {
                 assert.equal(err, null);
                 assert.notEqual(result, null);
-                let hosts = client.hosts.values().map((h) => h.address);
+                let hosts = client.hosts
+                    .values()
+                    .map((h) => h.addressToString());
                 let queriedHost = result.info.queriedHost;
 
                 if (helper.getServerInfo().isScylla) {

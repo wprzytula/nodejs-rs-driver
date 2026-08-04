@@ -1,6 +1,9 @@
 use std::net::{IpAddr, SocketAddr};
 
-use napi::bindgen_prelude::FromNapiValue;
+use napi::{
+    Env, JsValue,
+    bindgen_prelude::{FromNapiValue, JsObjectValue, Object, ToNapiValue},
+};
 
 use crate::errors::make_js_error;
 
@@ -40,8 +43,47 @@ impl FromNapiValue for SocketAddrWrapper {
     }
 }
 
+impl ToNapiValue for SocketAddrWrapper {
+    /// Produces the plain options object accepted by the `net.SocketAddress` constructor:
+    /// `{ address, port, family }`.
+    ///
+    /// This is deliberately *not* a `net.SocketAddress` itself - building one requires calling that
+    /// class's constructor, which is what `crate::utils::js_ctor::build_socket_address` does.
+    /// Emitting the constructor's own input shape here keeps this impl the exact inverse of
+    /// `FromNapiValue` above, so a `SocketAddrWrapper` round-trips through JS unchanged.
+    ///
+    /// `address` is the bare IP: no port, and for IPv6 no surrounding brackets (e.g. `::1`). That
+    /// is what `net.SocketAddress` expects, and it differs from `SocketAddr`'s `Display`, which
+    /// renders the combined `[::1]:9042` form.
+    unsafe fn to_napi_value(
+        env: napi::sys::napi_env,
+        val: Self,
+    ) -> napi::Result<napi::sys::napi_value> {
+        let env = Env::from_raw(env);
+        let mut obj = Object::new(&env)?;
+
+        obj.set_named_property("address", val.socket.ip().to_string())?;
+        obj.set_named_property("port", val.socket.port())?;
+        obj.set_named_property(
+            "family",
+            match val.socket {
+                SocketAddr::V4(_) => "ipv4",
+                SocketAddr::V6(_) => "ipv6",
+            },
+        )?;
+
+        Ok(obj.raw())
+    }
+}
+
 impl SocketAddrWrapper {
     pub(crate) fn into_inner(self) -> SocketAddr {
         self.socket
+    }
+}
+
+impl From<SocketAddr> for SocketAddrWrapper {
+    fn from(socket: SocketAddr) -> Self {
+        SocketAddrWrapper { socket }
     }
 }
