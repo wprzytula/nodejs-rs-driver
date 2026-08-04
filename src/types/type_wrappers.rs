@@ -81,6 +81,7 @@ impl ToNapiValue for ComplexType<'_> {
             ColumnType::Native(native_type) => {
                 obj.set_named_property(
                     base_type_name,
+                    #[deny(clippy::wildcard_enum_match_arm)]
                     match native_type {
                         NativeType::Ascii => CqlType::Ascii,
                         NativeType::Boolean => CqlType::Boolean,
@@ -108,8 +109,11 @@ impl ToNapiValue for ComplexType<'_> {
                         NativeType::Timeuuid => CqlType::Timeuuid,
                         NativeType::Uuid => CqlType::Uuid,
                         NativeType::Varint => CqlType::Varint,
-                        other => {
-                            unimplemented!("Missing implementation for CQL native type {:?}", other)
+                        _ => {
+                            unimplemented!(
+                                "Missing implementation for CQL native type {:?}",
+                                native_type
+                            )
                         }
                     },
                 )?;
