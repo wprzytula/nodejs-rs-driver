@@ -17,6 +17,8 @@ pub mod js_constructible_class {
     pub enum ColumnMetadata {}
     pub enum TableMetadata {}
     pub enum MaterializedView {}
+    pub enum UdtField {}
+    pub enum Udt {}
     pub enum Strategy {}
     pub enum SocketAddress {}
     pub enum Host {}
@@ -51,6 +53,16 @@ type MaterializedViewCtorArgs<'a> = FnArgs<(
     &'a Vec<String>,
     Option<&'a str>,
     &'a str,
+)>;
+
+/// Arguments passed to `UdtField(name, typ)`.
+type UdtFieldCtorArgs<'a> = FnArgs<(&'a str, ComplexType<'a>)>;
+
+/// Arguments passed to `Udt(name, keyspace, fields)`.
+type UdtCtorArgs<'a> = FnArgs<(
+    &'a str,
+    &'a str,
+    Vec<JsInstance<'a, js_constructible_class::UdtField>>,
 )>;
 
 /// Arguments passed to `Strategy(kind, replicationFactor, datacenterRepfactors, name, data)`.
@@ -230,6 +242,25 @@ define_js_ctor!(
     build_fn: build_materialized_view,
     args: MaterializedViewCtorArgs<'_>,
     class_name: MaterializedView,
+);
+
+define_js_ctor!(
+    /// `UdtField(name, typ)`
+    static_name: UDT_FIELD_CTOR,
+    register_fn: register_udt_field_ctor,
+    build_fn: build_udt_field,
+    args: UdtFieldCtorArgs<'_>,
+    class_name: UdtField,
+);
+
+define_js_ctor!(
+    /// `Udt(name, keyspace, fields)`
+    /// `fields` is an array of `UdtField` instances
+    static_name: UDT_CTOR,
+    register_fn: register_udt_ctor,
+    build_fn: build_udt,
+    args: UdtCtorArgs<'_>,
+    class_name: Udt,
 );
 
 define_js_ctor!(
