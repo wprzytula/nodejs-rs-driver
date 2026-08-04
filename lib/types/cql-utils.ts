@@ -1,6 +1,7 @@
 import { ComplexType, CqlType } from "../../index";
 import type { CqlValue } from "../../main";
 import Encoder = require("../encoder");
+import { UdtField } from "../metadata/user-defined-type";
 
 /** Options grouping for column information.
  * This option grouping is present to make this interface backward compatible. */
@@ -17,17 +18,13 @@ export interface ColumnInfoOptions {
     reversed?: boolean;
 }
 
-/** Single field of the user-defined type - (name, type) pair */
-export interface UdtField {
-    name: string;
-    type: ColumnInfo;
-}
-
 /** Definition of a user-defined type (UDT).
  *  UDT is composed of fields, each with a name and an optional value of its own type. */
 export interface UdtInfo {
     /** Name of the user-defined type. */
     name: string;
+    /** Keyspace the user-defined type is defined in. */
+    keyspace: string;
     fields: UdtField[];
 }
 
@@ -133,6 +130,7 @@ export function convertComplexType(type: ComplexType): ColumnInfo {
             case CqlType.Udt:
                 return new ColumnInfo(type.baseType.valueOf(), {
                     name: type.name,
+                    keyspace: type.keyspace,
                     fields: type.udt_types.map(
                         (typ: ComplexType, index: number) => ({
                             type: convertComplexType(typ),

@@ -111,7 +111,7 @@ export interface SchemaFunction {
 
 export interface UdtField {
   name: string;
-  type: DataTypeInfo;
+  type: ColumnInfo;
 }
 
 export interface Udt {
