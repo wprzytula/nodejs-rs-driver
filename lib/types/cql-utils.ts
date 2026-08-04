@@ -74,10 +74,12 @@ export class ColumnInfo {
         code: CqlType,
         info: ColumnInfo["info"] = null,
         customTypeName?: string,
+        options?: ColumnInfoOptions,
     ) {
         this.code = code;
         this.info = info;
         this.customTypeName = customTypeName;
+        this.options = options;
     }
 }
 
@@ -115,12 +117,19 @@ export function convertComplexType(type: ComplexType): ColumnInfo {
                 return new ColumnInfo(
                     type.baseType.valueOf(),
                     convertComplexType(type.subtype1),
+                    undefined,
+                    { frozen: type.frozen },
                 );
             case CqlType.Map:
-                return new ColumnInfo(type.baseType.valueOf(), [
-                    convertComplexType(type.subtype1),
-                    convertComplexType(type.subtype2),
-                ]);
+                return new ColumnInfo(
+                    type.baseType.valueOf(),
+                    [
+                        convertComplexType(type.subtype1),
+                        convertComplexType(type.subtype2),
+                    ],
+                    undefined,
+                    { frozen: type.frozen },
+                );
             case CqlType.Vector:
                 return new ColumnInfo(
                     CqlType.Custom,
@@ -128,16 +137,21 @@ export function convertComplexType(type: ComplexType): ColumnInfo {
                     "vector",
                 );
             case CqlType.Udt:
-                return new ColumnInfo(type.baseType.valueOf(), {
-                    name: type.name,
-                    keyspace: type.keyspace,
-                    fields: type.udt_types.map(
-                        (typ: ComplexType, index: number) => ({
-                            type: convertComplexType(typ),
-                            name: type.udt_name[index],
-                        }),
-                    ),
-                });
+                return new ColumnInfo(
+                    type.baseType.valueOf(),
+                    {
+                        name: type.name,
+                        keyspace: type.keyspace,
+                        fields: type.udt_types.map(
+                            (typ: ComplexType, index: number) => ({
+                                type: convertComplexType(typ),
+                                name: type.udt_name[index],
+                            }),
+                        ),
+                    },
+                    undefined,
+                    { frozen: type.frozen },
+                );
             case CqlType.Tuple:
                 return new ColumnInfo(
                     type.baseType.valueOf(),
