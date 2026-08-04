@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::types::type_helpers::SocketAddrWrapper;
+use crate::types::type_wrappers::ComplexType;
 use crate::utils::js_instance::JsInstance;
 
 /// Zero-sized marker types naming each JS class that Rust constructs directly.
@@ -13,6 +14,8 @@ use crate::utils::js_instance::JsInstance;
 pub mod js_constructible_class {
     /// Test-only marker for `TestJsClass(name, value)`, used by `crate::tests::napi_ref_tests`.
     pub enum TestJsClass {}
+    pub enum ColumnMetadata {}
+    pub enum TableMetadata {}
     pub enum Strategy {}
     pub enum SocketAddress {}
     pub enum Host {}
@@ -21,6 +24,23 @@ pub mod js_constructible_class {
 
 /// Arguments passed to the test-only `TestJsClass(name, value)` constructor.
 type TestJsClassCtorArgs<'a> = FnArgs<(&'a str, i32)>;
+
+/// Columns of a table/materialized view, as an array of `[name, ColumnMetadata]` pairs.
+type ColumnsArg<'a> = Vec<(
+    &'a str,
+    JsInstance<'a, js_constructible_class::ColumnMetadata>,
+)>;
+
+/// Arguments passed to `ColumnMetadata(typ, kind)`.
+type ColumnMetadataCtorArgs<'a> = FnArgs<(ComplexType<'a>, u32)>;
+
+/// Arguments passed to `TableMetadata(columns, partitionKey, clusteringKey, partitioner)`.
+type TableMetadataCtorArgs<'a> = FnArgs<(
+    ColumnsArg<'a>,
+    &'a Vec<String>,
+    &'a Vec<String>,
+    Option<&'a str>,
+)>;
 
 /// Arguments passed to `Strategy(kind, replicationFactor, datacenterRepfactors, name, data)`.
 /// Only the field(s) relevant to `kind` are set (`Some`); the rest are `None`.
@@ -170,6 +190,25 @@ define_js_ctor!(
     build_fn: build_test_js_class,
     args: TestJsClassCtorArgs<'_>,
     class_name: TestJsClass,
+);
+
+define_js_ctor!(
+    /// `ColumnMetadata(typ, kind)`
+    static_name: COLUMN_METADATA_CTOR,
+    register_fn: register_column_metadata_ctor,
+    build_fn: build_column_metadata,
+    args: ColumnMetadataCtorArgs<'_>,
+    class_name: ColumnMetadata,
+);
+
+define_js_ctor!(
+    /// `TableMetadata(columns, partitionKey, clusteringKey, partitioner)`
+    /// `columns` is an array of `[name, ColumnMetadata]`
+    static_name: TABLE_METADATA_CTOR,
+    register_fn: register_table_metadata_ctor,
+    build_fn: build_table_metadata,
+    args: TableMetadataCtorArgs<'_>,
+    class_name: TableMetadata,
 );
 
 define_js_ctor!(
