@@ -1,6 +1,6 @@
 use napi::Env;
 use napi::bindgen_prelude::{
-    FnArgs, FromNapiValue, Function, FunctionRef, JsValue, Object, Unknown,
+    Buffer, FnArgs, FromNapiValue, Function, FunctionRef, JsValue, Object, Unknown,
 };
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -12,10 +12,22 @@ use crate::utils::js_instance::JsInstance;
 pub mod js_constructible_class {
     /// Test-only marker for `TestJsClass(name, value)`, used by `crate::tests::napi_ref_tests`.
     pub enum TestJsClass {}
+    pub enum Host {}
+    pub enum HostMap {}
 }
 
 /// Arguments passed to the test-only `TestJsClass(name, value)` constructor.
 type TestJsClassCtorArgs<'a> = FnArgs<(&'a str, i32)>;
+
+/// Arguments passed to `Host(address, datacenter, rack, hostId)`.
+pub(crate) type HostCtorArgs<'a> = FnArgs<(String, Option<&'a str>, Option<&'a str>, Buffer)>;
+
+/// Arguments passed to `HostMap(hosts)`.
+///
+/// `hosts` is an array of already-built `Host` instances. The map keys each one by its own
+/// `host.address`, rather than us passing `[address, Host]` pairs, so that no per-host pair array
+/// has to be allocated on the JS heap, and the address is not sent across the boundary twice.
+type HostMapCtorArgs<'a> = FnArgs<(Vec<JsInstance<'a, js_constructible_class::Host>>,)>;
 
 /// Defines a per-environment constructor registry for a single pure-JS class, together with:
 /// - a `#[napi]` `register_*_ctor` function that JS calls once per environment, at module load
@@ -134,4 +146,23 @@ define_js_ctor!(
     build_fn: build_test_js_class,
     args: TestJsClassCtorArgs<'_>,
     class_name: TestJsClass,
+);
+
+define_js_ctor!(
+    /// `Host(address, datacenter, rack, hostId)`
+    static_name: HOST_CTOR,
+    register_fn: register_host_ctor,
+    build_fn: build_host,
+    args: HostCtorArgs<'_>,
+    class_name: Host,
+);
+
+define_js_ctor!(
+    /// `HostMap(hosts)`
+    /// `hosts` is an array of `Host` instances, keyed by `host.address` by the constructor
+    static_name: HOST_MAP_CTOR,
+    register_fn: register_host_map_ctor,
+    build_fn: build_host_map,
+    args: HostMapCtorArgs<'_>,
+    class_name: HostMap,
 );
