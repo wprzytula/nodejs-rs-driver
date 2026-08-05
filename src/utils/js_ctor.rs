@@ -23,6 +23,8 @@ pub mod js_constructible_class {
     pub enum SocketAddress {}
     pub enum Host {}
     pub enum HostMap {}
+    pub enum TracingEvent {}
+    pub enum QueryTrace {}
 }
 
 /// Arguments passed to the test-only `TestJsClass(name, value)` constructor.
@@ -95,6 +97,32 @@ pub(crate) type HostCtorArgs<'a> = FnArgs<(
 /// `host.address`, rather than us passing `[address, Host]` pairs, so that no per-host pair array
 /// has to be allocated on the JS heap, and the address is not sent across the boundary twice.
 type HostMapCtorArgs<'a> = FnArgs<(Vec<JsInstance<'a, js_constructible_class::Host>>,)>;
+
+/// Arguments passed to `TracingEvent(id, activity, source, elapsed, thread)`.
+///
+/// `id` is the raw 16-byte timeuuid, and `source` is the raw 4- or 16-byte IP address.
+pub(crate) type TracingEventCtorArgs<'a> = FnArgs<(
+    Buffer,
+    Option<&'a str>,
+    Option<Buffer>,
+    Option<i32>,
+    Option<&'a str>,
+)>;
+
+/// Arguments passed to
+/// `QueryTrace(requestType, coordinator, parameters, startedAt, duration, clientAddress, events)`.
+///
+/// `coordinator`/`clientAddress` are raw IP address bytes (converted to `InetAddress` inside the
+/// JS constructor), and `events` is an array of already-built `TracingEvent` instances.
+pub(crate) type QueryTraceCtorArgs<'a> = FnArgs<(
+    Option<&'a str>,
+    Option<Buffer>,
+    Option<HashMap<String, String>>,
+    Option<i64>,
+    Option<i32>,
+    Option<Buffer>,
+    Vec<JsInstance<'a, js_constructible_class::TracingEvent>>,
+)>;
 
 /// Defines a per-environment constructor registry for a single pure-JS class, together with:
 /// - a `#[napi]` `register_*_ctor` function that JS calls once per environment, at module load
@@ -299,4 +327,23 @@ define_js_ctor!(
     build_fn: build_host_map,
     args: HostMapCtorArgs<'_>,
     class_name: HostMap,
+);
+
+define_js_ctor!(
+    /// `TracingEvent(id, activity, source, elapsed, thread)`
+    static_name: TRACING_EVENT_CTOR,
+    register_fn: register_tracing_event_ctor,
+    build_fn: build_tracing_event,
+    args: TracingEventCtorArgs<'_>,
+    class_name: TracingEvent,
+);
+
+define_js_ctor!(
+    /// `QueryTrace(requestType, coordinator, parameters, startedAt, duration, clientAddress, events)`
+    /// `events` is an array of `TracingEvent` instances
+    static_name: QUERY_TRACE_CTOR,
+    register_fn: register_query_trace_ctor,
+    build_fn: build_query_trace,
+    args: QueryTraceCtorArgs<'_>,
+    class_name: QueryTrace,
 );
