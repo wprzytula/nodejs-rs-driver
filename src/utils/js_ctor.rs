@@ -13,6 +13,7 @@ use crate::utils::js_instance::JsInstance;
 pub mod js_constructible_class {
     /// Test-only marker for `TestJsClass(name, value)`, used by `crate::tests::napi_ref_tests`.
     pub enum TestJsClass {}
+    pub enum Strategy {}
     pub enum SocketAddress {}
     pub enum Host {}
     pub enum HostMap {}
@@ -20,6 +21,16 @@ pub mod js_constructible_class {
 
 /// Arguments passed to the test-only `TestJsClass(name, value)` constructor.
 type TestJsClassCtorArgs<'a> = FnArgs<(&'a str, i32)>;
+
+/// Arguments passed to `Strategy(kind, replicationFactor, datacenterRepfactors, name, data)`.
+/// Only the field(s) relevant to `kind` are set (`Some`); the rest are `None`.
+type StrategyCtorArgs<'a> = FnArgs<(
+    u32,
+    Option<u32>,
+    Option<HashMap<&'a str, u32>>,
+    Option<&'a str>,
+    Option<HashMap<&'a str, &'a str>>,
+)>;
 
 /// Arguments passed to `net.SocketAddress({ address, port, family })`.
 ///
@@ -153,6 +164,24 @@ macro_rules! define_js_ctor {
 }
 
 define_js_ctor!(
+    /// `TestJsClass(name, value)` - test-only class used by `crate::tests::napi_ref_tests`.
+    static_name: TEST_JS_CLASS_CTOR,
+    register_fn: register_test_js_class_ctor,
+    build_fn: build_test_js_class,
+    args: TestJsClassCtorArgs<'_>,
+    class_name: TestJsClass,
+);
+
+define_js_ctor!(
+    /// `Strategy(kind, replicationFactor, datacenterRepfactors, name, data)`
+    static_name: STRATEGY_CTOR,
+    register_fn: register_strategy_ctor,
+    build_fn: build_strategy,
+    args: StrategyCtorArgs<'_>,
+    class_name: Strategy,
+);
+
+define_js_ctor!(
     /// `net.SocketAddress({ address, port, family })` - Node's built-in socket address class,
     /// registered by `lib/host.js` so that Rust can hand back already-parsed host addresses.
     static_name: SOCKET_ADDRESS_CTOR,
@@ -160,15 +189,6 @@ define_js_ctor!(
     build_fn: build_socket_address,
     args: SocketAddressCtorArgs,
     class_name: SocketAddress,
-);
-
-define_js_ctor!(
-    /// `TestJsClass(name, value)` - test-only class used by `crate::tests::napi_ref_tests`.
-    static_name: TEST_JS_CLASS_CTOR,
-    register_fn: register_test_js_class_ctor,
-    build_fn: build_test_js_class,
-    args: TestJsClassCtorArgs<'_>,
-    class_name: TestJsClass,
 );
 
 define_js_ctor!(
