@@ -63,7 +63,10 @@ macro_rules! define_js_ctor {
         /// and once on the main thread), by the corresponding module on load, before any cluster metadata
         /// is accessed in that environment.
         #[napi]
-        pub fn $register_fn(ctor: Function<(), ()>, env: Env) -> napi::Result<()> {
+        pub fn $register_fn(
+            #[napi(ts_arg_type = "new (...args: any[]) => any")] ctor: Function<(), ()>,
+            env: Env,
+        ) -> napi::Result<()> {
             let ctor_ref = ctor.create_ref()?;
             let key = env.raw() as usize;
             {
