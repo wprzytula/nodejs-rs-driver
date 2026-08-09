@@ -1,3 +1,4 @@
+pub mod js_callback_tests;
 pub mod js_results_tests;
 pub mod logging_tests;
 pub mod napi_ref_tests;

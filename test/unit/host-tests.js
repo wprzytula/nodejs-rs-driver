@@ -14,8 +14,20 @@ function makeHostAt(address, datacenter, rack, hostIdByte) {
 }
 
 /**
- * Convenience wrapper building the `net.SocketAddress` for the host too, mirroring what
- * `build_socket_address` does on the Rust side.
+ * Builds a `HostMap` the same way the native code would: created empty, then filled in one host
+ * at a time through `_addFromRust`.
+ */
+function makeHostMap(hosts) {
+    const hostMap = new HostMap();
+    for (const host of hosts) {
+        hostMap._addFromRust(host);
+    }
+    return hostMap;
+}
+
+/**
+ * Convenience wrapper building the `net.SocketAddress` for the host too, mirroring what the
+ * `addHost` callback does on the JS side when called from Rust.
  *
  * `family` has to be passed explicitly for IPv6, since `net.SocketAddress` defaults to `ipv4` and
  * rejects an IPv6 literal under that family. Rust always sends it explicitly.
@@ -73,8 +85,8 @@ describe("Host", function () {
 
 describe("HostMap", function () {
     describe("constructor", function () {
-        it("should build an empty HostMap from an empty array", function () {
-            const hostMap = new HostMap([]);
+        it("should build an empty HostMap when no hosts are added", function () {
+            const hostMap = makeHostMap([]);
 
             assert.instanceOf(hostMap, HostMap);
             assert.strictEqual(hostMap.length, 0);
@@ -85,7 +97,7 @@ describe("HostMap", function () {
         it("should build a HostMap keyed by the host ids", function () {
             const host1 = makeHost("127.0.0.1", 9042, "dc1", "rack1", 1);
             const host2 = makeHost("127.0.0.2", 9042, "dc1", "rack2", 2);
-            const hostMap = new HostMap([host1, host2]);
+            const hostMap = makeHostMap([host1, host2]);
 
             assert.strictEqual(hostMap.length, 2);
             assert.sameMembers(hostMap.keys(), [host1.hostId, host2.hostId]);
@@ -101,7 +113,7 @@ describe("HostMap", function () {
         beforeEach(function () {
             host1 = makeHost("127.0.0.1", 9042, "dc1", "rack1", 1);
             host2 = makeHost("127.0.0.2", 9042, "dc1", "rack2", 2);
-            hostMap = new HostMap([host1, host2]);
+            hostMap = makeHostMap([host1, host2]);
         });
 
         it("get() should return the host for a known Uuid key", function () {

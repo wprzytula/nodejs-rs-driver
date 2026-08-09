@@ -1,6 +1,7 @@
 pub mod cache;
 pub mod from_napi_obj;
 pub mod js_ctor;
+pub mod js_fn_registry;
 pub mod js_instance;
 pub mod js_thread_only;
 pub mod napi_ref;

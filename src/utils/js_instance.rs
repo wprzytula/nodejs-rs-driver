@@ -38,6 +38,17 @@ impl<'env, C> JsInstance<'env, C> {
     }
 }
 
+// A `JsInstance` is just a handle, like the `Object` it wraps, so copying it is free and creates
+// no new GC root. Derives are avoided here: they would needlessly require `C: Clone`/`C: Copy`,
+// which the zero-sized class markers do not implement.
+impl<C> Clone for JsInstance<'_, C> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<C> Copy for JsInstance<'_, C> {}
+
 impl<C> ToNapiValue for JsInstance<'_, C> {
     unsafe fn to_napi_value(env: sys::napi_env, val: Self) -> napi::Result<sys::napi_value> {
         assert_eq!(

@@ -4,14 +4,14 @@ use crate::session::SessionWrapper;
 use crate::types::type_wrappers::ComplexType;
 use crate::utils::cache::{NapiRefCache, ReferenceCache};
 use crate::utils::js_ctor::{
-    build_column_metadata, build_materialized_view, build_strategy, build_table_metadata,
+    borrow_add_column_callback, build_materialized_view, build_strategy, build_table_metadata,
     build_udt, build_udt_field, js_constructible_class,
 };
 use crate::utils::js_instance::JsInstance;
 use crate::utils::napi_ref::NapiRef;
 use crate::utils::to_napi_obj::NamedMap;
 use napi::Env;
-use napi::bindgen_prelude::{FnArgs, JavaScriptClassExt, Reference};
+use napi::bindgen_prelude::{FnArgs, JavaScriptClassExt, Object, Reference};
 use scylla::cluster::metadata::{
     Column, ColumnKind, Keyspace, MaterializedView, Strategy, Table, UserDefinedType,
 };
@@ -106,26 +106,31 @@ fn column_kind_discriminant(kind: &ColumnKind) -> u32 {
     }
 }
 
-/// Converts a Rust driver's column map into the `[name, ColumnMetadata]` pairs shape,
-/// by directly constructing a `ColumnMetadata` JS instance for each column.
-fn columns_to_metadata<'a>(
-    env: &'a Env,
-    columns: &'a HashMap<String, Column>,
-) -> napi::Result<
-    Vec<(
-        &'a str,
-        JsInstance<'a, js_constructible_class::ColumnMetadata>,
-    )>,
-> {
-    columns
-        .iter()
-        .map(|(name, col)| {
-            let typ = ComplexType::new_borrowed(&col.typ);
-            let kind = column_kind_discriminant(&col.kind);
-            let column_metadata = build_column_metadata(env, FnArgs::from((typ, kind)))?;
-            Ok((name.as_str(), column_metadata))
-        })
-        .collect()
+/// Converts a Rust driver's column map into a plain JS object mapping column name to
+/// `ColumnMetadata`.
+///
+/// Rust creates the empty object and then streams the columns into it one at a time through the
+/// `addColumn` callback, which constructs each `ColumnMetadata` on the JS side and assigns it. No
+/// intermediate collection of columns exists on either side of the boundary, and each column
+/// crosses it exactly once.
+fn columns_to_metadata<'env>(
+    env: &'env Env,
+    columns: &HashMap<String, Column>,
+) -> napi::Result<Object<'env>> {
+    let target = Object::new(env)?;
+
+    // Borrowed once, invoked once per column.
+    let add_column = borrow_add_column_callback(env)?;
+    add_column.for_each(columns.iter().map(|(name, col)| {
+        FnArgs::from((
+            target,
+            name.as_str(),
+            ComplexType::new_borrowed(&col.typ),
+            column_kind_discriminant(&col.kind),
+        ))
+    }))?;
+
+    Ok(target)
 }
 
 fn convert_rust_table<'env>(
