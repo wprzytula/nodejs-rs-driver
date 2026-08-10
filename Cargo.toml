@@ -6,6 +6,12 @@ version = "0.6.1"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+# Swaps in a counting global allocator plus its readout, used by `benchmark/napi-call/run.js` to
+# assert how many Rust allocations a boundary crossing performs. Off by default so that release
+# builds pay no atomics per allocation.
+bench-alloc = []
+
 [dependencies]
 
 napi = { version = "3.6.0", default-features = false, features = ["napi4", "napi6", "async"] }
