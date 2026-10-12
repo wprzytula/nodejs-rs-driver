@@ -7,6 +7,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::future::Future;
+use std::pin::Pin;
 use std::ptr;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -18,7 +19,7 @@ use napi::bindgen_prelude::{ToNapiValue, check_status};
 use napi::{Env, Result, sys};
 
 use super::shared::{CompletionQueue, DeferredPtr};
-use super::worker;
+use super::worker::{self, StashingTask};
 use crate::errors::{ConvertedError, ConvertedResult};
 
 /// FutureRegistry — one per N-API environment.
@@ -45,11 +46,15 @@ impl FutureRegistry {
         REGISTRIES.with(|registries| registries.borrow().get(&key).cloned())
     }
 
-    /// Spawn the future and return the promise it settles.
+    /// Spawn the boxed task and return the promise it settles.
     ///
     /// The promise is created only after every fallible step except its own
     /// creation. So a failure never leaves an unsettled deferred behind.
-    pub(super) fn spawn<F, T>(&self, env: &Env, future: F) -> Result<sys::napi_value>
+    pub(super) fn spawn<F, T>(
+        &self,
+        env: &Env,
+        mut task: Pin<Box<StashingTask<F, T>>>,
+    ) -> Result<sys::napi_value>
     where
         F: Future<Output = ConvertedResult<T>> + Send + 'static,
         T: ToNapiValue + Send + 'static,
@@ -86,9 +91,9 @@ impl FutureRegistry {
 
         self.active_count.set(active_count + 1);
 
-        // The task allocation happens here, on the JavaScript thread.
         // The task body runs on a Tokio worker.
-        rt.spawn(worker::run_task(future, deferred, Arc::clone(&self.queue)));
+        task.as_mut().set_deferred(deferred);
+        rt.spawn(worker::run_task(task, Arc::clone(&self.queue)));
         Ok(promise)
     }
 
@@ -99,10 +104,12 @@ impl FutureRegistry {
         self.queue.signaled.store(false, Ordering::Release);
         let completed = std::mem::take(&mut *self.queue.completed.lock().unwrap());
 
-        for settle in completed {
+        for mut task in completed {
             // Conversion can invoke JavaScript, which may spawn another
             // future synchronously. No borrow is held here.
-            settle(env);
+            // SAFETY: The drain runs on the JavaScript thread of the environment
+            // that created the task's deferred. Each task is settled once.
+            unsafe { task.as_mut().settle(env) };
 
             let remaining = self.active_count.get() - 1;
             self.active_count.set(remaining);

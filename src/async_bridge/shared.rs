@@ -2,8 +2,10 @@
 //!
 //! Each method says which thread calls it.
 
+use std::pin::Pin;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
+use std::task::{Context, Poll};
 
 use napi::bindgen_prelude::check_status;
 use napi::{Env, Result, Status, sys};
@@ -57,12 +59,31 @@ impl DeferredPtr {
     }
 }
 
-/// Settles one Promise. It holds the result of the future and the deferred.
+/// A spawned future, with a slot for its output and the deferred it settles.
 ///
-/// A Tokio worker creates it when a future completes. The JavaScript thread
-/// calls it (and frees it) in the drain. It is boxed because one queue holds
-/// the results of futures with different output types.
-pub(super) type SettleCallback = Box<dyn FnOnce(Env) + Send>;
+/// The JavaScript thread boxes it in `FutureRegistry::spawn`. A Tokio worker
+/// polls it until the output is in the slot, and then pushes the same box to
+/// the queue. The JavaScript thread settles the Promise and frees the box in
+/// the drain. So each request needs only one allocation for the future and
+/// its result. It is a trait object because one queue holds futures with
+/// different output types.
+pub(super) trait BridgedTask: Send {
+    /// Runs on: a Tokio worker.
+    ///
+    /// Polls the future. When it completes, stores its output in the slot.
+    fn poll_stash(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()>;
+
+    /// Runs on: the JavaScript thread.
+    ///
+    /// Converts the stored output and settles the Promise.
+    ///
+    /// # Safety
+    /// Call this only on the JavaScript thread of `env`, which must be the
+    /// environment that created the deferred, and only once.
+    unsafe fn settle(self: Pin<&mut Self>, env: Env);
+}
+
+pub(super) type BoxedTask = Pin<Box<dyn BridgedTask>>;
 
 /// No argument no return value, weak ThreadSafeFunction type.
 pub(super) type Tsfn =
@@ -74,7 +95,7 @@ pub(super) type Tsfn =
 /// A single TSFN call drains the whole batch on the JavaScript thread
 /// (`FutureRegistry::drain`, in the `js_thread` module).
 pub(super) struct CompletionQueue {
-    pub(super) completed: Mutex<Vec<SettleCallback>>,
+    pub(super) completed: Mutex<Vec<BoxedTask>>,
     /// Set by the first push after a drain. Cleared by the drain.
     pub(super) signaled: AtomicBool,
     /// The TSFN lives here (behind a Mutex) so it's reachable from any

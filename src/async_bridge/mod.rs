@@ -63,7 +63,7 @@
 //! ```text
 //!                 created on    travels through                   used on
 //!  DeferredPtr    JS thread ───► Tokio task, then SettleCallback ───► JS thread (resolve / reject)
-//!  SettleCallback worker    ───► CompletionQueue                 ───► JS thread (called, freed)
+//!  BoxedTask      JS thread ───► Tokio task, then CompletionQueue ───► JS thread (settled, freed)
 //! ```
 //!
 //! # Modules
@@ -188,13 +188,15 @@ where
         F: Future<Output = ConvertedResult<T>> + Send + 'static,
     {
         with_custom_error(|| {
-            let fut = Box::pin(prepare()?);
+            // Box the future right away, so it is not copied again on its way
+            // to the heap. The same box later holds its output.
+            let task = worker::stashing_task(prepare()?);
             let registry = FutureRegistry::get(env).ok_or_else(|| {
                 ConvertedError::from(napi::Error::from_reason(
                     "init_async_bridge must be called before BridgedPromise::spawn",
                 ))
             })?;
-            let promise = registry.spawn(env, fut)?;
+            let promise = registry.spawn(env, task)?;
             ConvertedResult::Ok(BridgedPromise(promise, PhantomData))
         })
     }
